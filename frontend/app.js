@@ -17,6 +17,14 @@ createApp({
     const monthlyStats = ref({ count: 0, avgLucidity: 0 });
     const trendMaxDream = ref(null);
     const trendMinDream = ref(null);
+    const maxAvgDate = ref(null);
+    const maxAvgLucidity = ref(null);
+    const maxAvgDreams = ref([]);
+    const minAvgDate = ref(null);
+    const minAvgLucidity = ref(null);
+    const minAvgDreams = ref([]);
+    const selectedDate = ref(null);
+    const selectedDateDreams = ref([]);
     const trendChartRef = ref(null);
     let trendChartInstance = null;
 
@@ -171,6 +179,12 @@ createApp({
         const data = await apiRequest('/stats/lucidity-trend');
         trendMaxDream.value = data.maxDream;
         trendMinDream.value = data.minDream;
+        maxAvgDate.value = data.maxAvgDate;
+        maxAvgLucidity.value = data.maxAvgLucidity;
+        maxAvgDreams.value = data.maxAvgDreams || [];
+        minAvgDate.value = data.minAvgDate;
+        minAvgLucidity.value = data.minAvgLucidity;
+        minAvgDreams.value = data.minAvgDreams || [];
         currentTrendData = data.trendData;
         await nextTick();
         renderTrendChart(data.trendData);
@@ -188,6 +202,59 @@ createApp({
           renderTrendChart(currentTrendData);
         }
       }, 200);
+    }
+
+    function handleChartClick(event) {
+      if (!trendChartInstance || !trendChartInstance.points) return;
+      
+      const canvas = trendChartRef.value;
+      const rect = canvas.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+      
+      const dpr = window.devicePixelRatio || 1;
+      const hitRadius = 12;
+      
+      let closestPoint = null;
+      let closestDist = Infinity;
+      
+      trendChartInstance.points.forEach(p => {
+        if (p.y !== null) {
+          const dist = Math.sqrt((p.x - x) ** 2 + (p.y - y) ** 2);
+          if (dist < hitRadius && dist < closestDist) {
+            closestDist = dist;
+            closestPoint = p;
+          }
+        }
+      });
+      
+      if (closestPoint) {
+        selectDate(closestPoint.date);
+      }
+    }
+
+    function selectDate(date) {
+      if (!date) return;
+      selectedDate.value = date;
+      
+      if (currentTrendData) {
+        const dayData = currentTrendData.find(d => d.date === date);
+        if (dayData && dayData.dreams) {
+          selectedDateDreams.value = dayData.dreams;
+          return;
+        }
+      }
+      
+      fetchDreamsByDate(date);
+    }
+
+    async function fetchDreamsByDate(date) {
+      try {
+        const data = await apiRequest('/dreams/date/' + date);
+        selectedDateDreams.value = data;
+      } catch (e) {
+        console.error('获取日期梦境失败', e);
+      }
     }
 
     function renderTrendChart(trendData) {
@@ -334,14 +401,33 @@ createApp({
 
       points.forEach(p => {
         if (p.y !== null) {
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
-          ctx.fillStyle = '#8b5cf6';
-          ctx.fill();
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, 2.5, 0, Math.PI * 2);
-          ctx.fillStyle = '#fff';
-          ctx.fill();
+          const isSelected = selectedDate.value === p.date;
+          
+          if (isSelected) {
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, 10, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(139, 92, 246, 0.2)';
+            ctx.fill();
+            
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, 7, 0, Math.PI * 2);
+            ctx.fillStyle = '#8b5cf6';
+            ctx.fill();
+            
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+            ctx.fillStyle = '#fff';
+            ctx.fill();
+          } else {
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+            ctx.fillStyle = '#8b5cf6';
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, 2.5, 0, Math.PI * 2);
+            ctx.fillStyle = '#fff';
+            ctx.fill();
+          }
         }
       });
 
@@ -454,6 +540,14 @@ createApp({
       }
     });
 
+    watch(selectedDate, () => {
+      if (currentTrendData && isLoggedIn.value) {
+        nextTick(() => {
+          renderTrendChart(currentTrendData);
+        });
+      }
+    });
+
     return {
       isLoggedIn,
       user,
@@ -467,6 +561,14 @@ createApp({
       monthlyStats,
       trendMaxDream,
       trendMinDream,
+      maxAvgDate,
+      maxAvgLucidity,
+      maxAvgDreams,
+      minAvgDate,
+      minAvgLucidity,
+      minAvgDreams,
+      selectedDate,
+      selectedDateDreams,
       trendChartRef,
       newDream,
       fetchRandomDream,
@@ -476,7 +578,9 @@ createApp({
       selectedYear,
       selectedMonth,
       yearOptions,
-      onMonthChange
+      onMonthChange,
+      handleChartClick,
+      selectDate
     };
   }
 }).mount('#app');

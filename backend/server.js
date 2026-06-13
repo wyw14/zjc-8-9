@@ -229,6 +229,12 @@ app.get('/api/stats/lucidity-trend', authenticateToken, (req, res) => {
   let minLucidity = 6;
   let maxDream = null;
   let minDream = null;
+  let maxAvgLucidity = -1;
+  let minAvgLucidity = 6;
+  let maxAvgDate = null;
+  let minAvgDate = null;
+  let maxAvgDreams = [];
+  let minAvgDreams = [];
   
   for (let i = 0; i < 30; i++) {
     const d = new Date(thirtyDaysAgo);
@@ -240,10 +246,22 @@ app.get('/api/stats/lucidity-trend', authenticateToken, (req, res) => {
     trendData.push({
       date: dateStr,
       avgLucidity: avg,
-      count: dayData.count
+      count: dayData.count,
+      dreams: dayData.dreams
     });
     
     if (dayData.count > 0) {
+      if (avg > maxAvgLucidity) {
+        maxAvgLucidity = avg;
+        maxAvgDate = dateStr;
+        maxAvgDreams = dayData.dreams;
+      }
+      if (avg < minAvgLucidity) {
+        minAvgLucidity = avg;
+        minAvgDate = dateStr;
+        minAvgDreams = dayData.dreams;
+      }
+      
       dayData.dreams.forEach(dream => {
         if (dream.lucidity > maxLucidity) {
           maxLucidity = dream.lucidity;
@@ -260,8 +278,20 @@ app.get('/api/stats/lucidity-trend', authenticateToken, (req, res) => {
   res.json({
     trendData,
     maxDream,
-    minDream
+    minDream,
+    maxAvgDate,
+    maxAvgLucidity,
+    maxAvgDreams,
+    minAvgDate,
+    minAvgLucidity,
+    minAvgDreams
   });
+});
+
+app.get('/api/dreams/date/:date', authenticateToken, (req, res) => {
+  const { date } = req.params;
+  const userDreams = readJSON(DREAMS_FILE).filter(d => d.userId === req.user.id && d.date === date);
+  res.json(userDreams.sort((a, b) => new Date(b.date) - new Date(a.date)));
 });
 
 app.listen(PORT, () => {

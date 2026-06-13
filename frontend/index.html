@@ -71,25 +71,43 @@
 
         <div class="card">
           <h2>📈 清醒度趋势（最近30天）</h2>
+          <p class="chart-hint">💡 点击图表上的数据点可查看当天的梦境记录</p>
           <div class="chart-container">
-            <canvas ref="trendChartRef"></canvas>
+            <canvas ref="trendChartRef" @click="handleChartClick"></canvas>
           </div>
           <div class="trend-extremes">
-            <div v-if="trendMaxDream" class="extreme-card max">
-              <div class="extreme-label">🌟 清醒度最高</div>
-              <div class="extreme-date">{{ trendMaxDream.date }}</div>
-              <div class="extreme-lucidity">
-                <span v-for="n in 5" :key="n" class="star">{{ n <= trendMaxDream.lucidity ? '★' : '☆' }}</span>
+            <div v-if="maxAvgDate" class="extreme-card max" @click="selectDate(maxAvgDate)">
+              <div class="extreme-label">🌟 日均清醒度最高</div>
+              <div class="extreme-date">{{ maxAvgDate }} · 平均 {{ maxAvgLucidity }}</div>
+              <div class="extreme-count">{{ maxAvgDreams.length }} 个梦境</div>
+              <div class="extreme-dream-preview" v-if="maxAvgDreams.length > 0">
+                "{{ maxAvgDreams[0].content }}"
               </div>
-              <div class="extreme-content">"{{ trendMaxDream.content }}"</div>
+              <div class="extreme-action">点击查看详情 →</div>
             </div>
-            <div v-if="trendMinDream" class="extreme-card min">
-              <div class="extreme-label">🌙 清醒度最低</div>
-              <div class="extreme-date">{{ trendMinDream.date }}</div>
-              <div class="extreme-lucidity">
-                <span v-for="n in 5" :key="n" class="star">{{ n <= trendMinDream.lucidity ? '★' : '☆' }}</span>
+            <div v-if="minAvgDate" class="extreme-card min" @click="selectDate(minAvgDate)">
+              <div class="extreme-label">🌙 日均清醒度最低</div>
+              <div class="extreme-date">{{ minAvgDate }} · 平均 {{ minAvgLucidity }}</div>
+              <div class="extreme-count">{{ minAvgDreams.length }} 个梦境</div>
+              <div class="extreme-dream-preview" v-if="minAvgDreams.length > 0">
+                "{{ minAvgDreams[0].content }}"
               </div>
-              <div class="extreme-content">"{{ trendMinDream.content }}"</div>
+              <div class="extreme-action">点击查看详情 →</div>
+            </div>
+          </div>
+
+          <div v-if="selectedDateDreams.length > 0" class="date-dreams-section">
+            <div class="date-dreams-header">
+              <span class="date-dreams-title">📅 {{ selectedDate }} 的梦境</span>
+              <button class="btn-close" @click="selectedDate = null; selectedDateDreams = []">✕</button>
+            </div>
+            <div class="date-dreams-list">
+              <div v-for="dream in selectedDateDreams" :key="dream.id" class="date-dream-item">
+                <div class="date-dream-lucidity">
+                  <span v-for="n in 5" :key="n" class="star">{{ n <= dream.lucidity ? '★' : '☆' }}</span>
+                </div>
+                <div class="date-dream-content">{{ dream.content }}</div>
+              </div>
             </div>
           </div>
         </div>
