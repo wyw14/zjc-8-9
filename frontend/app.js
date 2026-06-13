@@ -1,6 +1,6 @@
-const { createApp, ref, onMounted, computed } = Vue;
+const { createApp, ref, onMounted, onUnmounted, computed, nextTick, watch } = Vue;
 
-const API_BASE = 'http://localhost:3001/api';
+const API_BASE = 'http://localhost:3109/api';
 
 createApp({
   setup() {
@@ -15,6 +15,10 @@ createApp({
     const dreams = ref([]);
     const randomDream = ref(null);
     const monthlyStats = ref({ count: 0, avgLucidity: 0 });
+    const trendMaxDream = ref(null);
+    const trendMinDream = ref(null);
+    const trendChartRef = ref(null);
+    let trendChartInstance = null;
 
     const now = new Date();
     const selectedYear = ref(now.getFullYear());
@@ -38,6 +42,8 @@ createApp({
     let audioContext = null;
     let noiseNode = null;
     let gainNode = null;
+    let currentTrendData = null;
+    let resizeTimeout = null;
 
     function getToken() {
       return localStorage.getItem('dream_token');
@@ -153,11 +159,193 @@ createApp({
 
     async function fetchMonthlyStats() {
       try {
-        const data = await apiRequest(`/stats/monthly?year=${selectedYear.value}&month=${selectedMonth.value}`);
+        const data = await apiRequest('/stats/monthly?year=' + selectedYear.value + '&month=' + selectedMonth.value);
         monthlyStats.value = data;
       } catch (e) {
         console.error('获取月度统计失败', e);
       }
+    }
+
+    async function fetchLucidityTrend() {
+      try {
+        const data = await apiRequest('/stats/lucidity-trend');
+        trendMaxDream.value = data.maxDream;
+        trendMinDream.value = data.minDream;
+        currentTrendData = data.trendData;
+        await nextTick();
+        renderTrendChart(data.trendData);
+      } catch (e) {
+        console.error('获取清醒度趋势失败', e);
+      }
+    }
+
+    function handleResize() {
+      if (resizeTimeout) {
+        clearTimeout(resizeTimeout);
+      }
+      resizeTimeout = setTimeout(() => {
+        if (currentTrendData && isLoggedIn.value) {
+          renderTrendChart(currentTrendData);
+        }
+      }, 200);
+    }
+
+    function renderTrendChart(trendData) {
+      const canvas = trendChartRef.value;
+      if (!canvas) return;
+
+      const ctx = canvas.getContext('2d');
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      ctx.scale(dpr, dpr);
+
+      const width = rect.width;
+      const height = rect.height;
+      const padding = { top: 20, right: 20, bottom: 50, left: 40 };
+      const chartWidth = width - padding.left - padding.right;
+      const chartHeight = height - padding.top - padding.bottom;
+
+      ctx.clearRect(0, 0, width, height);
+
+      const validPoints = trendData.filter(d => d.avgLucidity !== null);
+      if (validPoints.length === 0) {
+        ctx.fillStyle = '#64748b';
+        ctx.font = '14px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('最近30天暂无梦境记录', width / 2, height / 2);
+        return;
+      }
+
+      const yMax = 5;
+      const yMin = 0;
+      const yStep = 1;
+
+      ctx.strokeStyle = 'rgba(107, 114, 128, 0.2)';
+      ctx.lineWidth = 1;
+      ctx.fillStyle = '#6b7280';
+      ctx.font = '11px sans-serif';
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+
+      const ySteps = (yMax - yMin) / yStep;
+      for (let i = 0; i <= ySteps; i++) {
+        const y = padding.top + (i / ySteps) * chartHeight;
+        const value = yMax - i * yStep;
+        
+        ctx.beginPath();
+        ctx.moveTo(padding.left, y);
+        ctx.lineTo(width - padding.right, y);
+        ctx.stroke();
+        
+        ctx.fillText(value.toString(), padding.left - 10, y);
+      }
+
+      const labels = trendData.map(d => {
+        const date = new Date(d.date);
+        return (date.getMonth() + 1) + '/' + date.getDate();
+      });
+
+      const xStep = chartWidth / (trendData.length - 1);
+      
+      ctx.fillStyle = '#6b7280';
+      ctx.font = '10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+
+      const labelStep = Math.ceil(trendData.length / 10);
+      for (let i = 0; i < trendData.length; i += labelStep) {
+        const x = padding.left + i * xStep;
+        ctx.save();
+        ctx.translate(x, height - padding.bottom + 8);
+        ctx.rotate(-Math.PI / 4);
+        ctx.fillText(labels[i], 0, 0);
+        ctx.restore();
+      }
+
+      const points = trendData.map((d, i) => ({
+        x: padding.left + i * xStep,
+        y: d.avgLucidity !== null 
+          ? padding.top + ((yMax - d.avgLucidity) / (yMax - yMin)) * chartHeight
+          : null,
+        value: d.avgLucidity,
+        date: d.date,
+        count: d.count
+      }));
+
+      const gradient = ctx.createLinearGradient(0, padding.top, 0, height - padding.bottom);
+      gradient.addColorStop(0, 'rgba(139, 92, 246, 0.3)');
+      gradient.addColorStop(1, 'rgba(139, 92, 246, 0.02)');
+
+      ctx.beginPath();
+      let started = false;
+      for (let i = 0; i < points.length; i++) {
+        if (points[i].y !== null) {
+          if (!started) {
+            ctx.moveTo(points[i].x, height - padding.bottom);
+            ctx.lineTo(points[i].x, points[i].y);
+            started = true;
+          } else {
+            const prev = points[i - 1];
+            if (prev.y !== null) {
+              const cpx = (prev.x + points[i].x) / 2;
+              ctx.bezierCurveTo(cpx, prev.y, cpx, points[i].y, points[i].x, points[i].y);
+            } else {
+              ctx.lineTo(points[i].x, points[i].y);
+            }
+          }
+        }
+      }
+      if (started) {
+        const lastValid = [...points].reverse().find(p => p.y !== null);
+        if (lastValid) {
+          ctx.lineTo(lastValid.x, height - padding.bottom);
+        }
+        ctx.closePath();
+        ctx.fillStyle = gradient;
+        ctx.fill();
+      }
+
+      ctx.beginPath();
+      ctx.strokeStyle = '#8b5cf6';
+      ctx.lineWidth = 2.5;
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
+      started = false;
+      for (let i = 0; i < points.length; i++) {
+        if (points[i].y !== null) {
+          if (!started) {
+            ctx.moveTo(points[i].x, points[i].y);
+            started = true;
+          } else {
+            const prev = points[i - 1];
+            if (prev.y !== null) {
+              const cpx = (prev.x + points[i].x) / 2;
+              ctx.bezierCurveTo(cpx, prev.y, cpx, points[i].y, points[i].x, points[i].y);
+            } else {
+              ctx.moveTo(points[i].x, points[i].y);
+            }
+          }
+        }
+      }
+      ctx.stroke();
+
+      points.forEach(p => {
+        if (p.y !== null) {
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+          ctx.fillStyle = '#8b5cf6';
+          ctx.fill();
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 2.5, 0, Math.PI * 2);
+          ctx.fillStyle = '#fff';
+          ctx.fill();
+        }
+      });
+
+      trendChartInstance = { canvas, points };
     }
 
     function onMonthChange() {
@@ -191,6 +379,7 @@ createApp({
     function loadData() {
       fetchDreams();
       fetchMonthlyStats();
+      fetchLucidityTrend();
     }
 
     function createWhiteNoise() {
@@ -255,6 +444,14 @@ createApp({
       if (isLoggedIn.value) {
         loadData();
       }
+      window.addEventListener('resize', handleResize);
+    });
+
+    onUnmounted(() => {
+      window.removeEventListener('resize', handleResize);
+      if (resizeTimeout) {
+        clearTimeout(resizeTimeout);
+      }
     });
 
     return {
@@ -268,6 +465,9 @@ createApp({
       dreams,
       randomDream,
       monthlyStats,
+      trendMaxDream,
+      trendMinDream,
+      trendChartRef,
       newDream,
       fetchRandomDream,
       addDream,

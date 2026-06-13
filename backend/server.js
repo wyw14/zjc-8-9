@@ -6,7 +6,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
 const app = express();
-const PORT = 3001;
+const PORT = 3109;
 const JWT_SECRET = 'dream-secret-key-2024';
 
 const DATA_DIR = path.join(__dirname, 'data');
@@ -191,6 +191,76 @@ app.get('/api/stats/monthly', authenticateToken, (req, res) => {
     month: targetMonth,
     count,
     avgLucidity: parseFloat(avgLucidity)
+  });
+});
+
+app.get('/api/stats/lucidity-trend', authenticateToken, (req, res) => {
+  const userDreams = readJSON(DREAMS_FILE).filter(d => d.userId === req.user.id);
+  
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
+  const thirtyDaysAgo = new Date(today);
+  thirtyDaysAgo.setDate(today.getDate() - 29);
+  
+  const dailyData = {};
+  for (let i = 0; i < 30; i++) {
+    const d = new Date(thirtyDaysAgo);
+    d.setDate(thirtyDaysAgo.getDate() + i);
+    const dateStr = d.toISOString().split('T')[0];
+    dailyData[dateStr] = { total: 0, count: 0, dreams: [] };
+  }
+  
+  userDreams.forEach(dream => {
+    const dreamDate = new Date(dream.date);
+    dreamDate.setHours(0, 0, 0, 0);
+    if (dreamDate >= thirtyDaysAgo && dreamDate <= today) {
+      const dateStr = dream.date;
+      if (dailyData[dateStr]) {
+        dailyData[dateStr].total += dream.lucidity;
+        dailyData[dateStr].count += 1;
+        dailyData[dateStr].dreams.push(dream);
+      }
+    }
+  });
+  
+  const trendData = [];
+  let maxLucidity = -1;
+  let minLucidity = 6;
+  let maxDream = null;
+  let minDream = null;
+  
+  for (let i = 0; i < 30; i++) {
+    const d = new Date(thirtyDaysAgo);
+    d.setDate(thirtyDaysAgo.getDate() + i);
+    const dateStr = d.toISOString().split('T')[0];
+    const dayData = dailyData[dateStr];
+    const avg = dayData.count > 0 ? parseFloat((dayData.total / dayData.count).toFixed(1)) : null;
+    
+    trendData.push({
+      date: dateStr,
+      avgLucidity: avg,
+      count: dayData.count
+    });
+    
+    if (dayData.count > 0) {
+      dayData.dreams.forEach(dream => {
+        if (dream.lucidity > maxLucidity) {
+          maxLucidity = dream.lucidity;
+          maxDream = dream;
+        }
+        if (dream.lucidity < minLucidity) {
+          minLucidity = dream.lucidity;
+          minDream = dream;
+        }
+      });
+    }
+  }
+  
+  res.json({
+    trendData,
+    maxDream,
+    minDream
   });
 });
 
